@@ -2,7 +2,10 @@ import cv2
 import numpy as np
 from itertools import combinations
 import pytesseract
-import os
+
+from itertools import combinations
+from tkinter import Tk, Label, Button, filedialog, messagebox
+from PIL import Image, ImageTk
 
 
 # 计算两条直线的交点
@@ -58,8 +61,9 @@ def student_id_get(image):
     for i, (x, y, w, h) in enumerate(digit_contours):
         # 裁剪出每个数字区域
         digit = image[(int)(y-h*0.1) : (int)(y + h*1.1), (int)(x - w*0.1) : (int)(x + w*1.1)]
-        cv2.imshow(f"Digit {i}", digit)
-        cv2.waitKey(0)
+        # 展示裁剪出的数字区域
+        # cv2.imshow(f"Digit {i}", digit)
+        # cv2.waitKey(0)
 
         # 保存裁剪出的数字区域（可选）
         # crop_path = os.path.join(output_dir, f"digit_{i}.png")
@@ -221,9 +225,9 @@ def pic_solve(image, id):
     cv2.imwrite(f"output/transformed_image{id}.png", image)
     cv2.imwrite(f"output/binary_image{id}.png", binary)
 
-    cv2.waitKey(0)
+    # cv2.waitKey(0)
 
-    return results
+    return binary , image
 
 
 def process_answers(results, num_options=5, x_tolerance=20):
@@ -268,17 +272,76 @@ def process_answers(results, num_options=5, x_tolerance=20):
 
     return answers
 
+class ImageProcessorApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Student ID and Answer Processor")
+
+        self.label = Label(master, text="Welcome to the Image Processor")
+        self.label.pack()
+
+        self.load_button = Button(master, text="Load Image", command=self.load_image)
+        self.load_button.pack()
+
+        self.image_labels = []  # 用于存储图像标签
+
+    def load_image(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            # 清除之前的图像展示
+            for label in self.image_labels:
+                label.destroy()
+            self.image_labels.clear()  # 清空标签列表
+
+            image = cv2.imread(file_path)
+            transformed_image = perspective_transform(image)
+
+            binary_image, final_image = pic_solve(transformed_image, 1)  # 假设ID为1
+            self.display_image(final_image, "Processed Image")
+            self.display_image(binary_image, "Binary Image")
+
+            # messagebox.showinfo("Result", f"Student ID: {student_id}")
+
+    def display_image(self, image, title):
+        if image is None:
+            messagebox.showerror("Error", "Image could not be loaded.")
+            return
+
+        if len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        height, width, _ = image.shape
+        image_pil = Image.fromarray(image)
+        image_pil = image_pil.resize((width // 2, height // 2), Image.ANTIALIAS)
+        img_tk = ImageTk.PhotoImage(image_pil)
+
+        label = Label(self.master)
+        label.config(image=img_tk)
+        label.image = img_tk
+        label.pack()
+
+        self.image_labels.append(label)  # 将新标签添加到列表中
 
 if __name__ == "__main__":
-    test_count = 7
-    for id in range(7, test_count + 1):
-        image_name = f"images/test{id}.png"
-        image = cv2.imread(image_name)
-        student_id_get(image)
-        transformed_image = perspective_transform(image)
-        results = pic_solve(transformed_image, id)
+    root = Tk()
+    app = ImageProcessorApp(root)
+    root.mainloop()
 
-        print(f"Answers for image {id}:")
-        answers = process_answers(results)
-        for q, ans in answers.items():
-            print(f"{q}: {ans}")
+
+if __name__ == "__main__":
+    root = Tk()
+    app = ImageProcessorApp(root)
+    root.mainloop()
+    
+    # test_count = 7
+    # for id in range(7, test_count + 1):
+    #     image_name = f"images/test{id}.png"
+    #     image = cv2.imread(image_name)
+    #     student_id_get(image)
+    #     transformed_image = perspective_transform(image)
+    #     results = pic_solve(transformed_image, id)
+
+    #     print(f"Answers for image {id}:")
+    #     answers = process_answers(results)
+    #     for q, ans in answers.items():
+    #         print(f"{q}: {ans}")
