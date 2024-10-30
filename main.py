@@ -4,7 +4,7 @@ from itertools import combinations
 import pytesseract
 
 from itertools import combinations
-from tkinter import Tk, Label, Button, filedialog, messagebox
+from tkinter import Tk, Label, Button, filedialog, messagebox, Text , Checkbutton , BooleanVar , Entry
 from PIL import Image, ImageTk
 
 
@@ -45,7 +45,7 @@ def student_id_get(image):
     for cnt in contours:
         x, y, w, h = cv2.boundingRect(cnt)
         aspect_ratio = h / w
-        if 1.5 < aspect_ratio < 4.0 and 5 < w < 50 and 10 < h < 100:
+        if 1.5 < aspect_ratio < 3.0 and 10 < w < 50 and 10 < h < 40:
             digit_contours.append((x, y, w, h))
 
     # 按x排序，以从左到右的顺序读取数字
@@ -81,12 +81,14 @@ def student_id_get(image):
         )
         
         
-        config = r"--psm "
+        config = r"--psm 9"
         recognized_digit = pytesseract.image_to_string(digit, lang="eng", config=config)
         print(f"Recognized digit: {recognized_digit}")
 
+        recognized_digit = recognized_digit[0]
         # 添加到结果列表
-        digits.append(recognized_digit)
+        if(len(recognized_digit)==1) and recognized_digit.isdigit():
+            digits.append(recognized_digit)
 
     # 拼接识别的所有数字，组成最终的学号
     student_id = "".join(digits)
@@ -169,7 +171,7 @@ def perspective_transform(image):
 
 
 # 读取图像并进行处理
-def pic_solve(image, id):
+def pic_solve(image, id,min_radius, max_radius):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, binary = cv2.threshold(
         gray, 125, 255, cv2.THRESH_BINARY_INV
@@ -178,13 +180,13 @@ def pic_solve(image, id):
     # 使用霍夫圆变换检测圆形
     circles = cv2.HoughCircles(
         binary,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=20,
-        param1=50,
-        param2=30,
-        minRadius=15,
-        maxRadius=50,
+        cv2.HOUGH_GRADIENT, # 使用梯度法检测圆
+        dp=1.2, # 累加器分辨率与图像分辨率的反比
+        minDist=40, # 圆心之间的最小距离
+        param1=50, #这个参数是canny检测的高阈值，参数越大，边缘检测越弱，检测到的边缘越少
+        param2=30, #这个参数是canny检测的低阈值，高于这个阈值的边缘才会被检测到
+        minRadius=min_radius, # 最小半径
+        maxRadius=max_radius, # 最大半径
     )
 
     # 初始化填涂结果存储
@@ -221,13 +223,14 @@ def pic_solve(image, id):
                 image, text, (x - 20, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1
             )
 
+    # 展示结果
     cv2.imwrite(f"output/image{id}.png", image)
     cv2.imwrite(f"output/transformed_image{id}.png", image)
     cv2.imwrite(f"output/binary_image{id}.png", binary)
 
     # cv2.waitKey(0)
 
-    return binary , image
+    return results , image
 
 
 def process_answers(results, num_options=5, x_tolerance=20):
@@ -272,6 +275,7 @@ def process_answers(results, num_options=5, x_tolerance=20):
 
     return answers
 
+
 class ImageProcessorApp:
     def __init__(self, master):
         self.master = master
@@ -283,24 +287,64 @@ class ImageProcessorApp:
         self.load_button = Button(master, text="Load Image", command=self.load_image)
         self.load_button.pack()
 
+        self.answer_text = Text(master, height=10, width=50)
+        self.answer_text.pack()
+
+        # 添加复选框
+        self.recognize_id_var = BooleanVar(value=False)
+        self.id_checkbox = Checkbutton(master, text="Recognize Student ID", variable=self.recognize_id_var)
+        self.id_checkbox.pack()
+
+        # 添加最小和最大半径的输入框
+        self.min_radius_label = Label(master, text="Min Radius:")
+        self.min_radius_label.pack()
+        self.min_radius_entry = Entry(master)
+        self.min_radius_entry.pack()
+        self.min_radius_entry.insert(0, "20")  # 默认值
+
+        self.max_radius_label = Label(master, text="Max Radius:")
+        self.max_radius_label.pack()
+        self.max_radius_entry = Entry(master)
+        self.max_radius_entry.pack()
+        self.max_radius_entry.insert(0, "40")  # 默认值
+
         self.image_labels = []  # 用于存储图像标签
 
     def load_image(self):
         file_path = filedialog.askopenfilename()
         if file_path:
-            # 清除之前的图像展示
             for label in self.image_labels:
                 label.destroy()
-            self.image_labels.clear()  # 清空标签列表
+            self.image_labels.clear()
 
             image = cv2.imread(file_path)
             transformed_image = perspective_transform(image)
 
-            binary_image, final_image = pic_solve(transformed_image, 1)  # 假设ID为1
-            self.display_image(final_image, "Processed Image")
-            self.display_image(binary_image, "Binary Image")
+            # 获取用户输入的半径值
+            min_radius = int(self.min_radius_entry.get())
+            max_radius = int(self.max_radius_entry.get())
 
-            # messagebox.showinfo("Result", f"Student ID: {student_id}")
+            results, final_image = pic_solve(transformed_image, 1, min_radius, max_radius)  # 传递半径
+
+            self.display_image(final_image, "Processed Image")
+
+            # 根据复选框状态决定是否识别学号
+            if self.recognize_id_var.get():
+                student_id = student_id_get(image)
+                print(f"Student ID: {student_id}")
+            else:
+                student_id = "Not Recognized"
+
+            # 获取答案并显示
+            results = process_answers(results)  # 确保在pic_solve中保存了结果
+            self.display_answers(results, student_id)
+
+    def display_answers(self, answers, id):
+        """在文本框中显示答案"""
+        self.answer_text.delete(1.0, 'end')  # 清空文本框
+        answer_text = "\n".join(f"{q}: {ans}" for q, ans in answers.items())
+        answer_text = "\n".join([f"Student ID: {id}", answer_text])
+        self.answer_text.insert('end', answer_text)  # 插入答案
 
     def display_image(self, image, title):
         if image is None:
@@ -312,7 +356,7 @@ class ImageProcessorApp:
 
         height, width, _ = image.shape
         image_pil = Image.fromarray(image)
-        image_pil = image_pil.resize((width // 2, height // 2), Image.ANTIALIAS)
+        image_pil = image_pil.resize((width // 2, height // 2), Image.LANCZOS)
         img_tk = ImageTk.PhotoImage(image_pil)
 
         label = Label(self.master)
@@ -321,12 +365,6 @@ class ImageProcessorApp:
         label.pack()
 
         self.image_labels.append(label)  # 将新标签添加到列表中
-
-if __name__ == "__main__":
-    root = Tk()
-    app = ImageProcessorApp(root)
-    root.mainloop()
-
 
 if __name__ == "__main__":
     root = Tk()
